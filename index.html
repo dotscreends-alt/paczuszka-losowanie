@@ -99,13 +99,13 @@
 <main>
   <section class="panel lock">
     <h2>Uczestnicy <span class="badge" id="count">0</span></h2>
-    <form class="add" id="addForm" autocomplete="off">
-      <input type="text" id="nameInput" placeholder="Imię i nazwisko" maxlength="80">
+    <form class="add" id="addForm">
+      <input type="text" id="nameInput" name="osoba" placeholder="Imię i nazwisko" lang="pl" autocomplete="off" autocorrect="off" autocapitalize="words" spellcheck="false" enterkeyhint="done">
       <button type="submit" class="primary">Dodaj</button>
     </form>
     <details>
       <summary>Wklej wiele osób naraz</summary>
-      <textarea id="bulk" placeholder="Jedna osoba w każdej linii, np.&#10;Anna Kowalska&#10;Jan Nowak"></textarea>
+      <textarea id="bulk" lang="pl" autocapitalize="words" spellcheck="false" placeholder="Jedna osoba w każdej linii, np.&#10;Anna Kowalska&#10;Jan Nowak"></textarea>
       <button type="button" id="bulkAdd" class="small">Dodaj wszystkich</button>
     </details>
     <ul class="names" id="list"></ul>
@@ -118,7 +118,7 @@
     <div class="sep"></div>
     <h2>Ustawienia</h2>
     <label class="f" for="title">Tytuł losowania</label>
-    <input type="text" id="title" maxlength="50">
+    <input type="text" id="title" lang="pl" spellcheck="false">
     <label class="f" for="format">Format nagrania</label>
     <select id="format">
       <option value="1:1">Kwadrat 1:1 (1080×1080) – post</option>
@@ -195,7 +195,7 @@
   }
 
   // ---------- Lista uczestników ----------
-  const clean = s => s.replace(/\s+/g, ' ').trim();
+  const clean = s => String(s || '').normalize('NFC').replace(/[\u200B-\u200D\uFEFF]/g, '').replace(/\s+/g, ' ').trim().slice(0, 80);
   function addName(s){ s = clean(s); if (s) names.push(s); return !!s; }
   function renderList(){
     const ul = $('#list'); ul.innerHTML = '';
@@ -213,10 +213,25 @@
     });
     if (mode === 'idle') redraw();
   }
+  // Klawiatury Androida (Gboard, Samsung) trzymają ostatnie słowo „w edycji” –
+  // czekamy, aż zostanie zatwierdzone, i dopiero wtedy odczytujemy pole.
+  const nameInput = $('#nameInput');
+  let composing = false;
+  nameInput.addEventListener('compositionstart', () => { composing = true; });
+  nameInput.addEventListener('compositionend', () => { composing = false; });
+  function commitName(){
+    const v = nameInput.value;
+    if (addName(v)){ saveNames(); renderList(); const ul = $('#list'); ul.scrollTop = ul.scrollHeight; setStatus(''); }
+    nameInput.value = '';
+  }
   $('#addForm').addEventListener('submit', e => {
     e.preventDefault();
-    if (addName($('#nameInput').value)){ saveNames(); renderList(); const ul = $('#list'); ul.scrollTop = ul.scrollHeight; }
-    $('#nameInput').value = ''; $('#nameInput').focus();
+    if (composing){
+      nameInput.blur();                       // wymusza zatwierdzenie tekstu przez klawiaturę
+      setTimeout(() => { commitName(); nameInput.focus(); }, 60);
+    } else {
+      setTimeout(() => { commitName(); nameInput.focus(); }, 0);
+    }
   });
   $('#bulkAdd').onclick = () => {
     const lines = $('#bulk').value.split(/\r?\n|;/);
@@ -624,7 +639,7 @@
     if (mode === 'anim') return;
     if (names.length < 1){ setStatus('Dodaj co najmniej jednego uczestnika.', false, true); return; }
     ensureAudio();
-    try { await Promise.race([Promise.all([`700 60px ${F.script}`, `40px ${F.serif}`, `600 24px ${F.sans}`].map(f => document.fonts.load(f))), new Promise(r => setTimeout(r, 2500))]); } catch(e){}
+    await loadFonts();
     const idx = randInt(names.length), winner = names[idx];
     const spin = parseFloat(settings.speed) || 6;
     const len = Math.round(22 + spin * 7);
@@ -693,7 +708,15 @@
   };
 
   // ---------- Start ----------
+  // ładujemy także polskie znaki (osobny zestaw znaków w Google Fonts)
+  const PL = 'AaĄąĆćĘęŁłŃńÓóŚśŹźŻż0123456789';
+  function loadFonts(){
+    if (!document.fonts) return Promise.resolve();
+    const all = [`700 60px ${F.script}`, `40px ${F.serif}`, `600 24px ${F.sans}`].map(f => document.fonts.load(f, PL + names.join('')).catch(() => {}));
+    return Promise.race([Promise.all(all), new Promise(r => setTimeout(r, 2500))]);
+  }
   setFormat(); renderList(); renderHistory();
+  loadFonts().then(redraw);
   if (document.fonts) document.fonts.ready.then(redraw);
 })();
 </script>
